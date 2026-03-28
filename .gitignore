@@ -1,0 +1,7 @@
+*.xlsx
+*.xls
+*.ipynb
+cert_preview.py
+cert_ingest.py
+__pycache__/
+.ipynb_checkpoints/
