@@ -146,9 +146,17 @@ if comm == "Arabica":
             elif v < 0: return f"background:rgba(192,57,43,{min(abs(v)/5000,.65):.2f});color:#5a0d0d"
             return "color:#bbb"
 
+        def _chg_row_style(row):
+            if row.name == "TOTAL":
+                return ["font-weight:700; border-top:2px solid #ccc"] * len(row)
+            return [""] * len(row)
+
         st.dataframe(
-            chg_df.style.applymap(color_chg).format(lambda v: f"{v:+,}" if v != 0 else "—"),
-            use_container_width=True, height=500)
+            chg_df.style
+                  .applymap(color_chg)
+                  .apply(_chg_row_style, axis=1)
+                  .format(lambda v: f"{v:+,}" if v != 0 else "—"),
+            use_container_width=True)
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -157,48 +165,58 @@ if comm == "Arabica":
 
     kc_sorted  = kc.dropna(subset=["KC-TOT-TOT"]).sort_values("Date")
     abs_latest = kc_sorted.iloc[-1]
-    grand_tot  = float(abs_latest.get("KC-TOT-TOT", np.nan) or 0)
+    _gtv       = abs_latest.get("KC-TOT-TOT", np.nan)
+    grand_tot  = float(_gtv) if pd.notna(_gtv) else 0.0
+
+    def _safe_int(series_row, col):
+        v = series_row.get(col, np.nan)
+        return int(v) if pd.notna(v) else 0
 
     abs_rows = []
     for o in ORIGINS_NO_TOT:
         row = {"Origin": ORIGIN_NAMES[o]}
         for p in PORTS_NO_TOT:
-            col = f"KC-{o}-{p}"
-            row[PORT_NAMES[p]] = int(abs_latest.get(col, 0) or 0)
-        o_tot = int(abs_latest.get(f"KC-{o}-TOT", 0) or 0)
+            row[PORT_NAMES[p]] = _safe_int(abs_latest, f"KC-{o}-{p}")
+        o_tot = _safe_int(abs_latest, f"KC-{o}-TOT")
         row["Total"] = o_tot
         row["% Share"] = round(o_tot / grand_tot * 100, 1) if grand_tot else 0.0
         abs_rows.append(row)
     # Total row
     tot_abs = {"Origin": "TOTAL"}
     for p in PORTS_NO_TOT:
-        tot_abs[PORT_NAMES[p]] = int(abs_latest.get(f"KC-TOT-{p}", 0) or 0)
+        tot_abs[PORT_NAMES[p]] = _safe_int(abs_latest, f"KC-TOT-{p}")
     tot_abs["Total"]   = int(grand_tot)
     tot_abs["% Share"] = 100.0
     abs_rows.append(tot_abs)
     # % per port row
     pct_row = {"Origin": "% per Port"}
     for p in PORTS_NO_TOT:
-        pv = float(abs_latest.get(f"KC-TOT-{p}", 0) or 0)
+        pv = float(_safe_int(abs_latest, f"KC-TOT-{p}"))
         pct_row[PORT_NAMES[p]] = round(pv / grand_tot * 100, 1) if grand_tot else 0.0
     pct_row["Total"]   = 100.0
     pct_row["% Share"] = 0.0
     abs_rows.append(pct_row)
 
     abs_df = pd.DataFrame(abs_rows).set_index("Origin")
-    numeric_cols = [c for c in abs_df.columns if c != "% Share"]
 
     def fmt_abs(v):
         if isinstance(v, float) and v != int(v):
             return f"{v:.1f}%"
         return f"{int(v):,}" if pd.notna(v) and v != 0 else "—"
 
+    def _abs_row_style(row):
+        if row.name in ("TOTAL", "% per Port"):
+            return ["font-weight:700; border-top:2px solid #ccc"] * len(row)
+        return [""] * len(row)
+
     st.dataframe(
-        abs_df.style.format(fmt_abs).applymap(
-            lambda v: "background:#f0f2f8;font-weight:600" if isinstance(v, (int, float)) and v > 0 else "",
-            subset=["% Share"]
-        ),
-        use_container_width=True, height=540)
+        abs_df.style
+              .format(fmt_abs)
+              .apply(_abs_row_style, axis=1)
+              .applymap(
+                  lambda v: "background:#e8ecf8;font-weight:700" if isinstance(v, (int, float)) and v > 0 else "",
+                  subset=["% Share"]),
+        use_container_width=True)
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
