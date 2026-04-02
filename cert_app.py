@@ -88,6 +88,20 @@ def load_lrc():
     return df.sort_values("Date").reset_index(drop=True)
 
 
+@st.cache_data
+def load_rc_grading() -> pd.DataFrame:
+    path = _DATA.parent / "RC" / "Grading" / "RC_Grading_Feed.xlsx"
+    if not path.exists():
+        return pd.DataFrame()
+    df = pd.read_excel(path)
+    # PanelDate is an Excel serial number — convert to datetime
+    df["PanelDate"] = pd.to_datetime(df["PanelDate"], unit="D", origin="1899-12-30").dt.normalize()
+    df["NoLots"]    = pd.to_numeric(df["NoLots"],    errors="coerce").fillna(0).astype(int)
+    df["Allowance"] = pd.to_numeric(df["Allowance"], errors="coerce").fillna(0).astype(int)
+    df["Class"]     = df["Class"].astype(str).str.strip()
+    return df
+
+
 # ── Commodity selector ────────────────────────────────────────────────────────
 comm = st.radio("", ["Arabica", "Robusta"], horizontal=True, label_visibility="collapsed")
 st.markdown("<hr>", unsafe_allow_html=True)
@@ -599,222 +613,406 @@ if comm == "Arabica":
 # LRC / ROBUSTA VIEW
 # =============================================================================
 else:
-    lrc   = load_lrc()
-    min_d = lrc["Date"].min().date()
-    max_d = lrc["Date"].max().date()
+    tab_cs, tab_gr = st.tabs(["Certified Stocks", "Grading"])
 
-    date_range = st.slider("Date range", min_value=min_d, max_value=max_d,
-                           value=(pd.Timestamp("2020-01-01").date(), max_d),
-                           format="YYYY-MM-DD")
-    dff = lrc[(lrc["Date"] >= pd.Timestamp(date_range[0])) &
-              (lrc["Date"] <= pd.Timestamp(date_range[1]))]
-    st.markdown("<hr>", unsafe_allow_html=True)
+    # =========================================================================
+    # ROBUSTA TAB 1 — Certified Stocks (existing content)
+    # =========================================================================
+    with tab_cs:
+        lrc   = load_lrc()
+        min_d = lrc["Date"].min().date()
+        max_d = lrc["Date"].max().date()
 
-    # KPI strip
-    tot_now  = int(lrc["LRC-TOT-VG"].dropna().iloc[-1])
-    tot_prev = int(lrc["LRC-TOT-VG"].dropna().iloc[-2])
-    lrc_port_cols = {"ANT":"LRC-ANT-VG","LON":"LRC-LON-VG","FEL":"LRC-FEL-VG","BAR":"LRC-BAR-VG"}
-    port_vals_now = {}
-    for pn, col in lrc_port_cols.items():
-        if col in lrc.columns:
-            s = lrc[col].dropna()
-            if len(s): port_vals_now[pn] = int(s.iloc[-1])
-    ant_pct = port_vals_now.get("ANT", 0) / tot_now * 100 if tot_now else 0
+        date_range = st.slider("Date range", min_value=min_d, max_value=max_d,
+                               value=(pd.Timestamp("2020-01-01").date(), max_d),
+                               format="YYYY-MM-DD")
+        dff = lrc[(lrc["Date"] >= pd.Timestamp(date_range[0])) &
+                  (lrc["Date"] <= pd.Timestamp(date_range[1]))]
+        st.markdown("<hr>", unsafe_allow_html=True)
 
-    st.markdown(
-        kpi("Latest Date", lrc["Date"].max().strftime("%d/%m/%Y")) +
-        kpi("LRC Total Certs", f"{tot_now:,}", tot_now - tot_prev) +
-        kpi("Antwerp", f"{port_vals_now.get('ANT',0):,}") +
-        kpi("ANT %", f"{ant_pct:.1f}%") +
-        kpi("London", f"{port_vals_now.get('LON',0):,}"),
-        unsafe_allow_html=True)
-    st.markdown("<hr>", unsafe_allow_html=True)
+        # KPI strip
+        tot_now  = int(lrc["LRC-TOT-VG"].dropna().iloc[-1])
+        tot_prev = int(lrc["LRC-TOT-VG"].dropna().iloc[-2])
+        lrc_port_cols = {"ANT":"LRC-ANT-VG","LON":"LRC-LON-VG","FEL":"LRC-FEL-VG","BAR":"LRC-BAR-VG"}
+        port_vals_now = {}
+        for pn, col in lrc_port_cols.items():
+            if col in lrc.columns:
+                s = lrc[col].dropna()
+                if len(s): port_vals_now[pn] = int(s.iloc[-1])
+        ant_pct = port_vals_now.get("ANT", 0) / tot_now * 100 if tot_now else 0
 
-    # ── Row 1: Total + Port share pie ─────────────────────────────────────
-    c1, c2 = st.columns([3, 1])
-    with c1:
-        st.markdown(lbl("LRC Total Certified Stocks — Full History (bags)", RED), unsafe_allow_html=True)
-        valid_lt = dff[["Date","LRC-TOT-VG"]].dropna()
-        fig_lt = go.Figure()
-        fig_lt.add_trace(go.Scatter(x=valid_lt["Date"], y=valid_lt["LRC-TOT-VG"],
-            mode="lines", line=dict(color=RED, width=2),
-            fill="tozeroy", fillcolor="rgba(139,26,0,0.07)",
-            hovertemplate="%{x|%d/%m/%Y}<br><b>%{y:,} bags</b><extra></extra>"))
-        fig_lt.update_layout(height=240, margin=dict(t=8,b=8,l=4,r=4),
-            xaxis=dict(showgrid=False, tickfont=dict(size=9)),
-            yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9), tickformat=","),
-            **_D)
-        st.plotly_chart(fig_lt, use_container_width=True)
+        st.markdown(
+            kpi("Latest Date", lrc["Date"].max().strftime("%d/%m/%Y")) +
+            kpi("LRC Total Certs", f"{tot_now:,}", tot_now - tot_prev) +
+            kpi("Antwerp", f"{port_vals_now.get('ANT',0):,}") +
+            kpi("ANT %", f"{ant_pct:.1f}%") +
+            kpi("London", f"{port_vals_now.get('LON',0):,}"),
+            unsafe_allow_html=True)
+        st.markdown("<hr>", unsafe_allow_html=True)
 
-    with c2:
-        st.markdown(lbl("Port Share (%)", RED), unsafe_allow_html=True)
-        all_lrc_ports = [p for p in ["ANT","LON","FEL","BAR","AMS","BRE","HAM","LIV","NOR","ROT","TRI"]
-                         if f"LRC-{p}-VG" in lrc.columns]
-        lrc_shares = {}
-        for p in all_lrc_ports:
-            s = lrc[f"LRC-{p}-VG"].dropna()
-            v = int(s.iloc[-1]) if len(s) else 0
-            if v > 0: lrc_shares[p] = v
-        if lrc_shares:
-            fig_lpie = go.Figure(go.Pie(
-                labels=list(lrc_shares.keys()), values=list(lrc_shares.values()),
-                hole=0.5, textinfo="label+percent",
-                textfont=dict(size=8, color="#1d1d1f"),
-                marker=dict(colors=PIE_COLORS[:len(lrc_shares)],
-                            line=dict(color="white", width=1.5)),
-                sort=True))
-            fig_lpie.update_layout(height=240, margin=dict(t=8,b=8,l=0,r=0),
-                showlegend=False,
-                paper_bgcolor="#fafafa", plot_bgcolor="#fafafa",
-                font=dict(color="#1d1d1f", size=10))
-            st.plotly_chart(fig_lpie, use_container_width=True)
-
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    # ── Row 2: Port stocks bar + DoD change ──────────────────────────────
-    c3, c4 = st.columns(2)
-    with c3:
-        st.markdown(lbl("Current Stocks by Port (bags)", RED), unsafe_allow_html=True)
-        pb_names, pb_vals = [], []
-        for p in all_lrc_ports:
-            s = lrc[f"LRC-{p}-VG"].dropna()
-            v = int(s.iloc[-1]) if len(s) else 0
-            if v > 0:
-                pb_names.append(p); pb_vals.append(v)
-        if pb_names:
-            fig_pb = go.Figure(go.Bar(
-                x=pb_names, y=pb_vals,
-                marker_color=PIE_COLORS[:len(pb_names)],
-                text=[f"{v:,}" for v in pb_vals],
-                textposition="outside", textfont=dict(size=9)))
-            fig_pb.update_layout(height=260, margin=dict(t=10,b=8,l=4,r=4),
-                xaxis=dict(showgrid=False, tickfont=dict(size=10)),
-                yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9), title="bags"),
+        # ── Row 1: Total + Port share pie ─────────────────────────────────────
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.markdown(lbl("LRC Total Certified Stocks — Full History (bags)", RED), unsafe_allow_html=True)
+            valid_lt = dff[["Date","LRC-TOT-VG"]].dropna()
+            fig_lt = go.Figure()
+            fig_lt.add_trace(go.Scatter(x=valid_lt["Date"], y=valid_lt["LRC-TOT-VG"],
+                mode="lines", line=dict(color=RED, width=2),
+                fill="tozeroy", fillcolor="rgba(139,26,0,0.07)",
+                hovertemplate="%{x|%d/%m/%Y}<br><b>%{y:,} bags</b><extra></extra>"))
+            fig_lt.update_layout(height=240, margin=dict(t=8,b=8,l=4,r=4),
+                xaxis=dict(showgrid=False, tickfont=dict(size=9)),
+                yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9), tickformat=","),
                 **_D)
-            st.plotly_chart(fig_pb, use_container_width=True)
+            st.plotly_chart(fig_lt, use_container_width=True)
 
-    with c4:
-        st.markdown(lbl("Day-over-Day Change by Port (bags)", RED), unsafe_allow_html=True)
-        lrc_sorted2 = lrc.dropna(subset=["LRC-TOT-VG"]).sort_values("Date")
-        chg_names, chg_vals = [], []
-        if len(lrc_sorted2) >= 2:
-            lat = lrc_sorted2.iloc[-1]; prv = lrc_sorted2.iloc[-2]
+        with c2:
+            st.markdown(lbl("Port Share (%)", RED), unsafe_allow_html=True)
+            all_lrc_ports = [p for p in ["ANT","LON","FEL","BAR","AMS","BRE","HAM","LIV","NOR","ROT","TRI"]
+                             if f"LRC-{p}-VG" in lrc.columns]
+            lrc_shares = {}
             for p in all_lrc_ports:
-                col = f"LRC-{p}-VG"
-                nv  = lat.get(col, np.nan); pv2 = prv.get(col, np.nan)
-                if pd.notna(nv) and pd.notna(pv2):
-                    chg = int(nv - pv2)
-                    if chg != 0:
-                        chg_names.append(p); chg_vals.append(chg)
-        if chg_names:
-            fig_pc = go.Figure(go.Bar(
-                x=chg_names, y=chg_vals,
-                marker_color=[GREEN if v >= 0 else DRED for v in chg_vals],
-                text=[f"{v:+,}" for v in chg_vals],
-                textposition="outside", textfont=dict(size=9)))
-            fig_pc.add_hline(y=0, line_color="#cccccc", line_width=1)
-            fig_pc.update_layout(height=260, margin=dict(t=10,b=8,l=4,r=4),
-                xaxis=dict(showgrid=False, tickfont=dict(size=10)),
+                s = lrc[f"LRC-{p}-VG"].dropna()
+                v = int(s.iloc[-1]) if len(s) else 0
+                if v > 0: lrc_shares[p] = v
+            if lrc_shares:
+                fig_lpie = go.Figure(go.Pie(
+                    labels=list(lrc_shares.keys()), values=list(lrc_shares.values()),
+                    hole=0.5, textinfo="label+percent",
+                    textfont=dict(size=8, color="#1d1d1f"),
+                    marker=dict(colors=PIE_COLORS[:len(lrc_shares)],
+                                line=dict(color="white", width=1.5)),
+                    sort=True))
+                fig_lpie.update_layout(height=240, margin=dict(t=8,b=8,l=0,r=0),
+                    showlegend=False,
+                    paper_bgcolor="#fafafa", plot_bgcolor="#fafafa",
+                    font=dict(color="#1d1d1f", size=10))
+                st.plotly_chart(fig_lpie, use_container_width=True)
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+        # ── Row 2: Port stocks bar + DoD change ──────────────────────────────
+        c3, c4 = st.columns(2)
+        with c3:
+            st.markdown(lbl("Current Stocks by Port (bags)", RED), unsafe_allow_html=True)
+            pb_names, pb_vals = [], []
+            for p in all_lrc_ports:
+                s = lrc[f"LRC-{p}-VG"].dropna()
+                v = int(s.iloc[-1]) if len(s) else 0
+                if v > 0:
+                    pb_names.append(p); pb_vals.append(v)
+            if pb_names:
+                fig_pb = go.Figure(go.Bar(
+                    x=pb_names, y=pb_vals,
+                    marker_color=PIE_COLORS[:len(pb_names)],
+                    text=[f"{v:,}" for v in pb_vals],
+                    textposition="outside", textfont=dict(size=9)))
+                fig_pb.update_layout(height=260, margin=dict(t=10,b=8,l=4,r=4),
+                    xaxis=dict(showgrid=False, tickfont=dict(size=10)),
+                    yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9), title="bags"),
+                    **_D)
+                st.plotly_chart(fig_pb, use_container_width=True)
+
+        with c4:
+            st.markdown(lbl("Day-over-Day Change by Port (bags)", RED), unsafe_allow_html=True)
+            lrc_sorted2 = lrc.dropna(subset=["LRC-TOT-VG"]).sort_values("Date")
+            chg_names, chg_vals = [], []
+            if len(lrc_sorted2) >= 2:
+                lat = lrc_sorted2.iloc[-1]; prv = lrc_sorted2.iloc[-2]
+                for p in all_lrc_ports:
+                    col = f"LRC-{p}-VG"
+                    nv  = lat.get(col, np.nan); pv2 = prv.get(col, np.nan)
+                    if pd.notna(nv) and pd.notna(pv2):
+                        chg = int(nv - pv2)
+                        if chg != 0:
+                            chg_names.append(p); chg_vals.append(chg)
+            if chg_names:
+                fig_pc = go.Figure(go.Bar(
+                    x=chg_names, y=chg_vals,
+                    marker_color=[GREEN if v >= 0 else DRED for v in chg_vals],
+                    text=[f"{v:+,}" for v in chg_vals],
+                    textposition="outside", textfont=dict(size=9)))
+                fig_pc.add_hline(y=0, line_color="#cccccc", line_width=1)
+                fig_pc.update_layout(height=260, margin=dict(t=10,b=8,l=4,r=4),
+                    xaxis=dict(showgrid=False, tickfont=dict(size=10)),
+                    yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9), title="bags"),
+                    **_D)
+                st.plotly_chart(fig_pc, use_container_width=True)
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+        # ── Row 3: Port time series + Rolling 20d ────────────────────────────
+        c5, c6 = st.columns(2)
+        with c5:
+            st.markdown(lbl("Port Stocks Over Time", RED), unsafe_allow_html=True)
+            fig_ts = go.Figure()
+            ts_port_colors = {"ANT": RED, "LON": NAVY, "FEL": "#4a7fb5", "BAR": "#e8c96a"}
+            for pn, col in {"ANT":"LRC-ANT-VG","LON":"LRC-LON-VG",
+                             "FEL":"LRC-FEL-VG","BAR":"LRC-BAR-VG"}.items():
+                if col in dff.columns:
+                    s = dff[["Date", col]].dropna(subset=[col])
+                    if len(s):
+                        fig_ts.add_trace(go.Scatter(x=s["Date"], y=s[col],
+                            name=pn, mode="lines",
+                            line=dict(color=ts_port_colors.get(pn,"#aaa"), width=1.8)))
+            fig_ts.update_layout(height=260,
+                legend=dict(orientation="h", y=1.02, x=0, font=dict(size=8)),
+                margin=dict(t=10,b=8,l=4,r=4),
+                xaxis=dict(showgrid=False, tickfont=dict(size=9)),
                 yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9), title="bags"),
                 **_D)
-            st.plotly_chart(fig_pc, use_container_width=True)
+            st.plotly_chart(fig_ts, use_container_width=True)
 
-    st.markdown("<hr>", unsafe_allow_html=True)
+        with c6:
+            st.markdown(lbl("Rolling 20-Day Change — Total / ANT / UK", RED), unsafe_allow_html=True)
+            roll_df = dff[["Date","LRC-TOT-VG","LRC-ANT-VG","LRC-LON-VG","LRC-FEL-VG"]].copy().sort_values("Date")
+            roll_df["20d TOT"] = roll_df["LRC-TOT-VG"].diff().rolling(20).sum()
+            roll_df["20d ANT"] = roll_df["LRC-ANT-VG"].diff().rolling(20).sum()
+            roll_df["20d UK"]  = (roll_df["LRC-LON-VG"].fillna(0) +
+                                   roll_df["LRC-FEL-VG"].fillna(0)).diff().rolling(20).sum()
+            fig_roll = go.Figure()
+            for col, color, label in [("20d TOT", RED, "20d Total"),
+                                        ("20d ANT", NAVY, "20d Antwerp"),
+                                        ("20d UK", "#4a7fb5", "20d UK (Lon+Fel)")]:
+                s = roll_df[["Date", col]].dropna(subset=[col])
+                fig_roll.add_trace(go.Scatter(x=s["Date"], y=s[col],
+                    name=label, mode="lines", line=dict(color=color, width=1.8)))
+            fig_roll.add_hline(y=0, line_color="#cccccc", line_width=1)
+            fig_roll.update_layout(height=260,
+                legend=dict(orientation="h", y=1.02, x=0, font=dict(size=8)),
+                margin=dict(t=10,b=8,l=4,r=4),
+                xaxis=dict(showgrid=False, tickfont=dict(size=9)),
+                yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9), title="bags"),
+                **_D)
+            st.plotly_chart(fig_roll, use_container_width=True)
 
-    # ── Row 3: Port time series + Rolling 20d ────────────────────────────
-    c5, c6 = st.columns(2)
-    with c5:
-        st.markdown(lbl("Port Stocks Over Time", RED), unsafe_allow_html=True)
-        fig_ts = go.Figure()
-        ts_port_colors = {"ANT": RED, "LON": NAVY, "FEL": "#4a7fb5", "BAR": "#e8c96a"}
-        for pn, col in {"ANT":"LRC-ANT-VG","LON":"LRC-LON-VG",
-                         "FEL":"LRC-FEL-VG","BAR":"LRC-BAR-VG"}.items():
-            if col in dff.columns:
-                s = dff[["Date", col]].dropna(subset=[col])
-                if len(s):
-                    fig_ts.add_trace(go.Scatter(x=s["Date"], y=s[col],
-                        name=pn, mode="lines",
-                        line=dict(color=ts_port_colors.get(pn,"#aaa"), width=1.8)))
-        fig_ts.update_layout(height=260,
-            legend=dict(orientation="h", y=1.02, x=0, font=dict(size=8)),
-            margin=dict(t=10,b=8,l=4,r=4),
-            xaxis=dict(showgrid=False, tickfont=dict(size=9)),
-            yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9), title="bags"),
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+        # ── SECTION 8: Monthly Change Table + Bar ────────────────────────────
+        st.markdown(lbl("LRC Monthly Certified Stocks Change", RED), unsafe_allow_html=True)
+
+        lrc_m = lrc[["Date","LRC-TOT-VG"]].dropna().copy()
+        lrc_m["YM"] = lrc_m["Date"].dt.to_period("M")
+        monthly = lrc_m.groupby("YM")["LRC-TOT-VG"].agg(
+            Start="first", End="last", High="max", Low="min"
+        ).reset_index()
+        monthly["Δ Bags"] = monthly["End"] - monthly["Start"]
+        monthly["Δ %"]    = monthly["Δ Bags"] / monthly["Start"] * 100
+        monthly["Month"]  = monthly["YM"].astype(str)
+        monthly = monthly.sort_values("Month", ascending=False)
+
+        def _fmt_s(v):
+            if pd.isna(v): return "—"
+            return f"{v:+,.0f}"
+        def _fmt_pct(v):
+            if pd.isna(v): return "—"
+            return f"{v:+.1f}%"
+        def _col_signed(v):
+            if isinstance(v, (int, float)) and pd.notna(v):
+                if v > 0: return "color:#1a7a1a"
+                elif v < 0: return "color:#c0392b"
+            return ""
+
+        m_disp = monthly[["Month","Start","End","High","Low","Δ Bags","Δ %"]].reset_index(drop=True)
+        st.dataframe(
+            m_disp.style
+                  .applymap(_col_signed, subset=["Δ Bags","Δ %"])
+                  .format({"Start":"{:,.0f}","End":"{:,.0f}","High":"{:,.0f}","Low":"{:,.0f}",
+                           "Δ Bags":_fmt_s,"Δ %":_fmt_pct}),
+            use_container_width=True, height=400)
+
+        # Monthly bar chart (show last 36 months)
+        m_bar = monthly.sort_values("Month").tail(36)
+        fig_mb = go.Figure(go.Bar(
+            x=m_bar["Month"], y=m_bar["Δ Bags"],
+            marker_color=[GREEN if v >= 0 else DRED for v in m_bar["Δ Bags"]],
+            text=[f"{v:+,.0f}" if abs(v) > 50 else "" for v in m_bar["Δ Bags"]],
+            textposition="outside", textfont=dict(size=7.5),
+            hovertemplate="%{x}<br><b>%{y:+,.0f} bags</b><extra></extra>"))
+        fig_mb.add_hline(y=0, line_color="#cccccc", line_width=1)
+        fig_mb.update_layout(height=280, margin=dict(t=10,b=8,l=4,r=4),
+            xaxis=dict(showgrid=False, tickfont=dict(size=8), tickangle=-45),
+            yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9), title="bags Δ"),
             **_D)
-        st.plotly_chart(fig_ts, use_container_width=True)
+        st.plotly_chart(fig_mb, use_container_width=True)
 
-    with c6:
-        st.markdown(lbl("Rolling 20-Day Change — Total / ANT / UK", RED), unsafe_allow_html=True)
-        roll_df = dff[["Date","LRC-TOT-VG","LRC-ANT-VG","LRC-LON-VG","LRC-FEL-VG"]].copy().sort_values("Date")
-        roll_df["20d TOT"] = roll_df["LRC-TOT-VG"].diff().rolling(20).sum()
-        roll_df["20d ANT"] = roll_df["LRC-ANT-VG"].diff().rolling(20).sum()
-        roll_df["20d UK"]  = (roll_df["LRC-LON-VG"].fillna(0) +
-                               roll_df["LRC-FEL-VG"].fillna(0)).diff().rolling(20).sum()
-        fig_roll = go.Figure()
-        for col, color, label in [("20d TOT", RED, "20d Total"),
-                                    ("20d ANT", NAVY, "20d Antwerp"),
-                                    ("20d UK", "#4a7fb5", "20d UK (Lon+Fel)")]:
-            s = roll_df[["Date", col]].dropna(subset=[col])
-            fig_roll.add_trace(go.Scatter(x=s["Date"], y=s[col],
-                name=label, mode="lines", line=dict(color=color, width=1.8)))
-        fig_roll.add_hline(y=0, line_color="#cccccc", line_width=1)
-        fig_roll.update_layout(height=260,
-            legend=dict(orientation="h", y=1.02, x=0, font=dict(size=8)),
-            margin=dict(t=10,b=8,l=4,r=4),
-            xaxis=dict(showgrid=False, tickfont=dict(size=9)),
-            yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9), title="bags"),
-            **_D)
-        st.plotly_chart(fig_roll, use_container_width=True)
+    # =========================================================================
+    # ROBUSTA TAB 2 — Grading
+    # =========================================================================
+    with tab_gr:
+        gr = load_rc_grading()
+        if gr.empty:
+            st.warning("Grading feed not found — expected at: RC/Grading/RC_Grading_Feed.xlsx")
+        else:
+            all_panel_dates = sorted(gr["PanelDate"].unique(), reverse=True)
 
-    st.markdown("<hr>", unsafe_allow_html=True)
+            # ── Filters ──────────────────────────────────────────────────────
+            gf1, gf2, gf3 = st.columns([2, 2, 3])
+            with gf1:
+                sel_panel = st.selectbox(
+                    "Panel Date", all_panel_dates,
+                    format_func=lambda d: pd.Timestamp(d).strftime("%d/%m/%Y"),
+                    key="gr_panel_date",
+                )
+            with gf2:
+                sel_ukcont = st.multiselect(
+                    "Exchange", ["C", "UK"], default=["C", "UK"],
+                    format_func=lambda x: "Continent" if x == "C" else "UK",
+                    key="gr_ukcont",
+                )
+            with gf3:
+                all_origins = sorted(gr["Origin"].dropna().unique())
+                sel_origins = st.multiselect(
+                    "Origin", all_origins, default=all_origins, key="gr_origins",
+                )
 
-    # ── SECTION 8: Monthly Change Table + Bar ────────────────────────────
-    st.markdown(lbl("LRC Monthly Certified Stocks Change", RED), unsafe_allow_html=True)
+            grd = gr[
+                (gr["PanelDate"] == sel_panel) &
+                (gr["UKCont"].isin(sel_ukcont)) &
+                (gr["Origin"].isin(sel_origins))
+            ]
+            st.markdown("<hr>", unsafe_allow_html=True)
 
-    lrc_m = lrc[["Date","LRC-TOT-VG"]].dropna().copy()
-    lrc_m["YM"] = lrc_m["Date"].dt.to_period("M")
-    monthly = lrc_m.groupby("YM")["LRC-TOT-VG"].agg(
-        Start="first", End="last", High="max", Low="min"
-    ).reset_index()
-    monthly["Δ Bags"] = monthly["End"] - monthly["Start"]
-    monthly["Δ %"]    = monthly["Δ Bags"] / monthly["Start"] * 100
-    monthly["Month"]  = monthly["YM"].astype(str)
-    monthly = monthly.sort_values("Month", ascending=False)
+            # ── KPI strip ────────────────────────────────────────────────────
+            total_lots = int(grd["NoLots"].sum())
+            cont_lots  = int(grd[grd["UKCont"] == "C"]["NoLots"].sum())
+            uk_lots    = int(grd[grd["UKCont"] == "UK"]["NoLots"].sum())
+            n_origins  = grd["Origin"].nunique()
+            n_ports    = grd["PortId"].nunique()
+            st.markdown(
+                kpi("Panel Date", pd.Timestamp(sel_panel).strftime("%d/%m/%Y")) +
+                kpi("Total Lots", f"{total_lots:,}") +
+                kpi("Continent", f"{cont_lots:,}") +
+                kpi("UK", f"{uk_lots:,}") +
+                kpi("Origins", str(n_origins)) +
+                kpi("Ports", str(n_ports)),
+                unsafe_allow_html=True)
+            st.markdown("<hr>", unsafe_allow_html=True)
 
-    def _fmt_s(v):
-        if pd.isna(v): return "—"
-        return f"{v:+,.0f}"
-    def _fmt_pct(v):
-        if pd.isna(v): return "—"
-        return f"{v:+.1f}%"
-    def _col_signed(v):
-        if isinstance(v, (int, float)) and pd.notna(v):
-            if v > 0: return "color:#1a7a1a"
-            elif v < 0: return "color:#c0392b"
-        return ""
+            # ── Row 1: Lots by Origin + Lots by Class ────────────────────────
+            gc1, gc2 = st.columns(2)
+            with gc1:
+                st.markdown(lbl("Lots by Origin", RED), unsafe_allow_html=True)
+                orig_df = (grd.groupby("Origin")["NoLots"].sum()
+                              .sort_values(ascending=False).reset_index())
+                fig_go = go.Figure(go.Bar(
+                    x=orig_df["Origin"], y=orig_df["NoLots"],
+                    marker_color=PIE_COLORS[:len(orig_df)],
+                    text=orig_df["NoLots"].map(lambda v: f"{v:,}"),
+                    textposition="outside", textfont=dict(size=9)))
+                fig_go.update_layout(height=260, margin=dict(t=8,b=8,l=4,r=4),
+                    xaxis=dict(showgrid=False, tickfont=dict(size=9)),
+                    yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9), title="Lots"),
+                    **_D)
+                st.plotly_chart(fig_go, use_container_width=True)
 
-    m_disp = monthly[["Month","Start","End","High","Low","Δ Bags","Δ %"]].reset_index(drop=True)
-    st.dataframe(
-        m_disp.style
-              .applymap(_col_signed, subset=["Δ Bags","Δ %"])
-              .format({"Start":"{:,.0f}","End":"{:,.0f}","High":"{:,.0f}","Low":"{:,.0f}",
-                       "Δ Bags":_fmt_s,"Δ %":_fmt_pct}),
-        use_container_width=True, height=400)
+            with gc2:
+                st.markdown(lbl("Lots by Class", RED), unsafe_allow_html=True)
+                cls_df = (grd.groupby("Class")["NoLots"].sum()
+                             .reset_index().sort_values("Class"))
+                fig_gc = go.Figure(go.Bar(
+                    x=cls_df["Class"].astype(str), y=cls_df["NoLots"],
+                    marker_color=PIE_COLORS[:len(cls_df)],
+                    text=cls_df["NoLots"].map(lambda v: f"{v:,}"),
+                    textposition="outside", textfont=dict(size=9)))
+                fig_gc.update_layout(height=260, margin=dict(t=8,b=8,l=4,r=4),
+                    xaxis=dict(showgrid=False, tickfont=dict(size=11),
+                               title="Class  (1=par · 2=−30pts · 4=−90pts · P=premium)"),
+                    yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9), title="Lots"),
+                    **_D)
+                st.plotly_chart(fig_gc, use_container_width=True)
 
-    # Monthly bar chart (show last 36 months)
-    m_bar = monthly.sort_values("Month").tail(36)
-    fig_mb = go.Figure(go.Bar(
-        x=m_bar["Month"], y=m_bar["Δ Bags"],
-        marker_color=[GREEN if v >= 0 else DRED for v in m_bar["Δ Bags"]],
-        text=[f"{v:+,.0f}" if abs(v) > 50 else "" for v in m_bar["Δ Bags"]],
-        textposition="outside", textfont=dict(size=7.5),
-        hovertemplate="%{x}<br><b>%{y:+,.0f} bags</b><extra></extra>"))
-    fig_mb.add_hline(y=0, line_color="#cccccc", line_width=1)
-    fig_mb.update_layout(height=280, margin=dict(t=10,b=8,l=4,r=4),
-        xaxis=dict(showgrid=False, tickfont=dict(size=8), tickangle=-45),
-        yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9), title="bags Δ"),
-        **_D)
-    st.plotly_chart(fig_mb, use_container_width=True)
+            st.markdown("<hr>", unsafe_allow_html=True)
+
+            # ── Row 2: Lots by Port + Lots by Allowance ──────────────────────
+            gc3, gc4 = st.columns(2)
+            with gc3:
+                st.markdown(lbl("Lots by Port", RED), unsafe_allow_html=True)
+                port_df = (grd.groupby("PortId")["NoLots"].sum()
+                              .sort_values(ascending=False).reset_index())
+                fig_gp = go.Figure(go.Bar(
+                    x=port_df["PortId"], y=port_df["NoLots"],
+                    marker_color=PIE_COLORS[:len(port_df)],
+                    text=port_df["NoLots"].map(lambda v: f"{v:,}"),
+                    textposition="outside", textfont=dict(size=9)))
+                fig_gp.update_layout(height=260, margin=dict(t=8,b=8,l=4,r=4),
+                    xaxis=dict(showgrid=False, tickfont=dict(size=11)),
+                    yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9), title="Lots"),
+                    **_D)
+                st.plotly_chart(fig_gp, use_container_width=True)
+
+            with gc4:
+                st.markdown(lbl("Lots by Allowance (pts)", RED), unsafe_allow_html=True)
+                alw_df = (grd.groupby("Allowance")["NoLots"].sum()
+                             .reset_index().sort_values("Allowance"))
+                alw_df["label"] = alw_df["Allowance"].map(lambda v: f"{v:+d} pts")
+                fig_ga = go.Figure(go.Bar(
+                    x=alw_df["label"], y=alw_df["NoLots"],
+                    marker_color=[GREEN if v >= 0 else DRED for v in alw_df["Allowance"]],
+                    text=alw_df["NoLots"].map(lambda v: f"{v:,}"),
+                    textposition="outside", textfont=dict(size=9)))
+                fig_ga.update_layout(height=260, margin=dict(t=8,b=8,l=4,r=4),
+                    xaxis=dict(showgrid=False, tickfont=dict(size=11)),
+                    yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9), title="Lots"),
+                    **_D)
+                st.plotly_chart(fig_ga, use_container_width=True)
+
+            st.markdown("<hr>", unsafe_allow_html=True)
+
+            # ── Row 3: Origin × Class heatmap ────────────────────────────────
+            st.markdown(lbl("Origin × Class — Lots Heatmap", RED), unsafe_allow_html=True)
+            hm_piv = grd.pivot_table(
+                index="Origin", columns="Class", values="NoLots",
+                aggfunc="sum", fill_value=0,
+            )
+            hm_piv.columns = [str(c) for c in hm_piv.columns]
+            fig_hm = go.Figure(go.Heatmap(
+                z=hm_piv.values,
+                x=list(hm_piv.columns),
+                y=list(hm_piv.index),
+                colorscale=[[0, "#f0f2f8"], [0.5, "#4a7fb5"], [1, NAVY]],
+                text=hm_piv.values,
+                texttemplate="%{text:,}",
+                textfont=dict(size=11),
+                hovertemplate="Origin: %{y}<br>Class: %{x}<br>Lots: %{z:,}<extra></extra>",
+                showscale=True,
+            ))
+            fig_hm.update_layout(
+                height=max(200, 50 * len(hm_piv.index)),
+                margin=dict(t=8, b=8, l=4, r=4),
+                xaxis=dict(tickfont=dict(size=11), title="Class"),
+                yaxis=dict(tickfont=dict(size=10)),
+                **_D,
+            )
+            st.plotly_chart(fig_hm, use_container_width=True)
+
+            # ── Row 4: Historical time series (shown when >1 panel date) ─────
+            if len(all_panel_dates) > 1:
+                st.markdown("<hr>", unsafe_allow_html=True)
+                st.markdown(lbl("Total Lots Over Time (all panel dates)", RED), unsafe_allow_html=True)
+                ts_gr = (gr.groupby("PanelDate")["NoLots"].sum()
+                           .reset_index().sort_values("PanelDate"))
+                fig_ts_gr = go.Figure()
+                fig_ts_gr.add_trace(go.Scatter(
+                    x=ts_gr["PanelDate"], y=ts_gr["NoLots"],
+                    mode="lines+markers",
+                    line=dict(color=RED, width=2),
+                    marker=dict(size=5, color=RED),
+                    fill="tozeroy", fillcolor="rgba(139,26,0,0.07)",
+                    hovertemplate="%{x|%d/%m/%Y}<br><b>%{y:,} lots</b><extra></extra>",
+                ))
+                fig_ts_gr.update_layout(height=240, margin=dict(t=8,b=8,l=4,r=4),
+                    xaxis=dict(showgrid=False, tickfont=dict(size=9)),
+                    yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9), title="Lots"),
+                    **_D)
+                st.plotly_chart(fig_ts_gr, use_container_width=True)
+
+            # ── Raw data table ────────────────────────────────────────────────
+            st.markdown("<hr>", unsafe_allow_html=True)
+            with st.expander("Raw Data", expanded=False):
+                disp_gr = grd.copy()
+                disp_gr["PanelDate"] = disp_gr["PanelDate"].dt.strftime("%d/%m/%Y")
+                st.dataframe(disp_gr.reset_index(drop=True), use_container_width=True, height=400)
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("<hr>", unsafe_allow_html=True)
