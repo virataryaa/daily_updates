@@ -1,5 +1,6 @@
 *.xlsx
 *.xls
+!grading/RC_Grading_Feed.xlsx
 *.ipynb
 cert_preview.py
 cert_ingest.py

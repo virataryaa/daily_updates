@@ -90,7 +90,7 @@ def load_lrc():
 
 @st.cache_data
 def load_rc_grading() -> pd.DataFrame:
-    path = _DATA.parent / "RC" / "Grading" / "RC_Grading_Feed.xlsx"
+    path = _DATA / "grading" / "RC_Grading_Feed.xlsx"
     if not path.exists():
         return pd.DataFrame()
     df = pd.read_excel(path)
