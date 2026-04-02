@@ -856,8 +856,8 @@ else:
                 )
             with gf2:
                 sel_ukcont = st.multiselect(
-                    "Exchange", ["C", "UK"], default=["C", "UK"],
-                    format_func=lambda x: "Continent" if x == "C" else "UK",
+                    "Exchange", ["C", "UK", "US"], default=["C", "UK", "US"],
+                    format_func=lambda x: {"C": "Continent", "UK": "UK", "US": "US"}.get(x, x),
                     key="gr_ukcont",
                 )
             with gf3:
@@ -868,15 +868,16 @@ else:
 
             grd = gr[
                 (gr["PanelDate"] == sel_panel) &
-                (gr["UKCont"].isin(sel_ukcont)) &
+                (gr["UKContUS"].isin(sel_ukcont)) &
                 (gr["Origin"].isin(sel_origins))
             ]
             st.markdown("<hr>", unsafe_allow_html=True)
 
             # ── KPI strip ────────────────────────────────────────────────────
             total_lots = int(grd["NoLots"].sum())
-            cont_lots  = int(grd[grd["UKCont"] == "C"]["NoLots"].sum())
-            uk_lots    = int(grd[grd["UKCont"] == "UK"]["NoLots"].sum())
+            cont_lots  = int(grd[grd["UKContUS"] == "C"]["NoLots"].sum())
+            uk_lots    = int(grd[grd["UKContUS"] == "UK"]["NoLots"].sum())
+            us_lots    = int(grd[grd["UKContUS"] == "US"]["NoLots"].sum())
             n_origins  = grd["Origin"].nunique()
             n_ports    = grd["PortId"].nunique()
             st.markdown(
@@ -884,6 +885,7 @@ else:
                 kpi("Total Lots", f"{total_lots:,}") +
                 kpi("Continent", f"{cont_lots:,}") +
                 kpi("UK", f"{uk_lots:,}") +
+                kpi("US", f"{us_lots:,}") +
                 kpi("Origins", str(n_origins)) +
                 kpi("Ports", str(n_ports)),
                 unsafe_allow_html=True)
