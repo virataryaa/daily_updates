@@ -816,7 +816,7 @@ else:
         m_disp = monthly[["Month","Start","End","High","Low","Δ Bags","Δ %"]].reset_index(drop=True)
         st.dataframe(
             m_disp.style
-                  .applymap(_col_signed, subset=["Δ Bags","Δ %"])
+                  .map(_col_signed, subset=["Δ Bags","Δ %"])
                   .format({"Start":"{:,.0f}","End":"{:,.0f}","High":"{:,.0f}","Low":"{:,.0f}",
                            "Δ Bags":_fmt_s,"Δ %":_fmt_pct}),
             use_container_width=True, height=400)
